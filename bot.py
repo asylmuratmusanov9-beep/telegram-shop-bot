@@ -2,6 +2,8 @@ import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import json
+import os
 
 # ===== ТВОИ ДАННЫЕ =====
 BOT_TOKEN = "8699450261:AAHWOh4pVXD23O_rHXC1vpjzTl1VcjUBArg"
@@ -10,9 +12,12 @@ MANAGER_USERNAME = "Vajnigoi"
 SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
 # ========================
 
-# Подключение к Google Sheets
+# Подключение к Google Sheets через переменную окружения
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name('creds.json', scope)
+
+# Берём ключ из переменной окружения Railway
+creds_dict = json.loads(os.environ.get('GOOGLE_CREDS'))
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).sheet1
 
@@ -143,8 +148,8 @@ def process_buy(call):
         f"💰 *Сумма:* {product['price']} ₸\n\n"
         f"📌 *Реквизиты для оплаты:*\n"
         f"┌─────────────────────┐\n"
-        f"│  💳 Карта: 4002 8900 3510 3872\n"
-        f"│  👤 Получатель: Асылмурат М.\n"
+        f"│  💳 Карта: 1234 5678 9012 3456\n"
+        f"│  👤 Получатель: Асхат\n"
         f"│  💰 Сумма: {product['price']} ₸\n"
         f"└─────────────────────┘\n\n"
         f"✅ *После оплаты* нажми «Отправить чек»",
