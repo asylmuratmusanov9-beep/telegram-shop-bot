@@ -1,13 +1,15 @@
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import sqlite3
+import os
 
 BOT_TOKEN = "8699450261:AAHWOh4pVXD23O_rHXC1vpjzTl1VcjUBArg"
 ADMIN_ID = 7717714437
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-conn = sqlite3.connect('shop.db')
+# Подключение к БД
+conn = sqlite3.connect('shop.db', check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute('''CREATE TABLE IF NOT EXISTS products
@@ -16,6 +18,7 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS purchases
                   (user_id INTEGER, product_id INTEGER)''')
 conn.commit()
 
+# Клавиатуры
 def user_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(KeyboardButton("📚 Ашық сабақ"))
@@ -32,6 +35,7 @@ def admin_menu():
 
 user_state = {}
 
+# ===== ОСНОВНЫЕ КОМАНДЫ =====
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, "👋 Қош келдіңіз!", reply_markup=user_menu())
@@ -69,6 +73,31 @@ def show_ai(message):
 def order(message):
     bot.send_message(message.chat.id, "📞 Байланыс: @manager\n24/7 доступно")
 
+# ===== ПОКУПКА =====
+@bot.message_handler(func=lambda m: m.text.startswith("/buy_"))
+def buy_product(message):
+    pid = int(message.text.split("_")[1])
+    user_id = message.from_user.id
+    
+    cursor.execute("SELECT * FROM purchases WHERE user_id=? AND product_id=?", (user_id, pid))
+    if cursor.fetchone():
+        cursor.execute("SELECT file_id, name FROM products WHERE id=?", (pid,))
+        file_id, name = cursor.fetchone()
+        bot.send_message(message.chat.id, f"✅ У вас есть: {name}")
+        bot.send_document(message.chat.id, file_id)
+    else:
+        cursor.execute("SELECT name, price, file_id FROM products WHERE id=?", (pid,))
+        prod = cursor.fetchone()
+        if prod:
+            name, price, file_id = prod
+            cursor.execute("INSERT INTO purchases VALUES (?, ?)", (user_id, pid))
+            conn.commit()
+            bot.send_message(message.chat.id, f"✅ Куплено: {name}\n💰 {price} руб.")
+            bot.send_document(message.chat.id, file_id)
+        else:
+            bot.send_message(message.chat.id, "❌ Товар не найден")
+
+# ===== АДМИН: ДОБАВЛЕНИЕ ТОВАРА (ПОШАГОВО) =====
 @bot.message_handler(func=lambda m: m.text == "➕ Добавить товар")
 def add_product_start(message):
     if message.from_user.id != ADMIN_ID:
@@ -83,7 +112,7 @@ def stats(message):
     pc = cursor.execute("SELECT COUNT(*) FROM products").fetchone()[0]
     uc = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM purchases").fetchone()[0]
     sc = cursor.execute("SELECT COUNT(*) FROM purchases").fetchone()[0]
-    bot.send_message(message.chat.id, f"📊 Статистика:\n📦 {pc}\n👥 {uc}\n💰 {sc}")
+    bot.send_message(message.chat.id, f"📊 Статистика:\n📦 Товаров: {pc}\n👥 Покупателей: {uc}\n💰 Продаж: {sc}")
 
 @bot.message_handler(func=lambda m: m.text == "📦 Список")
 def list_products(message):
@@ -121,35 +150,14 @@ def delete_product(message):
     except:
         bot.send_message(message.chat.id, "❌ Используйте: /del 1")
 
-@bot.message_handler(func=lambda m: m.text.startswith("/buy_"))
-def buy_product(message):
-    pid = int(message.text.split("_")[1])
-    user_id = message.from_user.id
-    
-    cursor.execute("SELECT * FROM purchases WHERE user_id=? AND product_id=?", (user_id, pid))
-    if cursor.fetchone():
-        cursor.execute("SELECT file_id, name FROM products WHERE id=?", (pid,))
-        file_id, name = cursor.fetchone()
-        bot.send_message(message.chat.id, f"✅ У вас есть: {name}")
-        bot.send_document(message.chat.id, file_id)
-    else:
-        cursor.execute("SELECT name, price, file_id FROM products WHERE id=?", (pid,))
-        prod = cursor.fetchone()
-        if prod:
-            name, price, file_id = prod
-            cursor.execute("INSERT INTO purchases VALUES (?, ?)", (user_id, pid))
-            conn.commit()
-            bot.send_message(message.chat.id, f"✅ Куплено: {name}\n💰 {price} руб.")
-            bot.send_document(message.chat.id, file_id)
-        else:
-            bot.send_message(message.chat.id, "❌ Товар не найден")
-
+# ===== ОБРАБОТКА ТЕКСТА (ДЛЯ ПОШАГОВОГО ДОБАВЛЕНИЯ) =====
 @bot.message_handler(func=lambda m: True)
 def handle_text(message):
     chat_id = message.chat.id
     if chat_id in user_state:
         state = user_state[chat_id]
-        step = state["step"]
+        step = state.get("step")
+        
         if step == "name":
             state["name"] = message.text
             state["step"] = "category"
@@ -162,7 +170,7 @@ def handle_text(message):
             try:
                 state["price"] = int(message.text)
                 state["step"] = "file"
-                bot.send_message(chat_id, "📎 Отправьте ФАЙЛ (документ):")
+                bot.send_message(chat_id, "📎 Отправьте ФАЙЛ (документ, фото или видео):")
             except:
                 bot.send_message(chat_id, "❌ Введите цифры!")
         elif step == "file":
@@ -170,17 +178,44 @@ def handle_text(message):
     else:
         bot.send_message(chat_id, "❓ Отправь /start")
 
-@bot.message_handler(content_types=['document'])
+# ===== ОБРАБОТКА ФАЙЛОВ (ДОКУМЕНТЫ, ФОТО, ВИДЕО) =====
+@bot.message_handler(content_types=['document', 'photo', 'video'])
 def handle_file(message):
     chat_id = message.chat.id
-    if chat_id in user_state and user_state[chat_id].get("step") == "file":
+    
+    # Определяем тип файла и получаем file_id
+    if message.document:
         file_id = message.document.file_id
+        file_type = "документ"
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+        file_type = "фото"
+    elif message.video:
+        file_id = message.video.file_id
+        file_type = "видео"
+    else:
+        bot.send_message(chat_id, "❌ Неподдерживаемый тип файла")
+        return
+    
+    # Если админ в режиме добавления товара
+    if chat_id in user_state and user_state[chat_id].get("step") == "file":
         data = user_state[chat_id]
         cursor.execute("INSERT INTO products (name, category, price, file_id) VALUES (?, ?, ?, ?)",
                        (data["name"], data["category"], data["price"], file_id))
         conn.commit()
         bot.send_message(chat_id, f"✅ Товар '{data['name']}' добавлен!", reply_markup=admin_menu())
         del user_state[chat_id]
+    else:
+        # Если просто отправили файл - показываем file_id
+        bot.send_message(
+            chat_id, 
+            f"✅ {file_type.upper()} получен!\n\n"
+            f"🆔 FILE_ID:\n`{file_id}`\n\n"
+            f"📌 Используй команду:\n"
+            f"`/add |Название|Категория|Цена|{file_id}`\n\n"
+            f"Или нажми «➕ Добавить товар» в админ-панели",
+            parse_mode="Markdown"
+        )
 
 print("🚀 БОТ ЗАПУЩЕН!")
 bot.infinity_polling()
