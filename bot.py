@@ -1,26 +1,43 @@
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-import sqlite3
-import time
-import threading
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # ===== ТВОИ ДАННЫЕ =====
 BOT_TOKEN = "8699450261:AAHWOh4pVXD23O_rHXC1vpjzTl1VcjUBArg"
 ADMIN_ID = 7717714437
-MANAGER_USERNAME = "Vajnigoi"  # Твой юзернейм для Тапсырыс
+MANAGER_USERNAME = "Vajnigoi"
+SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
 # ========================
+
+# Подключение к Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name('creds.json', scope)
+gc = gspread.authorize(creds)
+sheet = gc.open_by_key(SHEET_ID).sheet1
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# База данных
-conn = sqlite3.connect('shop.db', check_same_thread=False)
-cursor = conn.cursor()
+# ===== ФУНКЦИИ ДЛЯ РАБОТЫ С GOOGLE SHEETS =====
+def get_all_products():
+    return sheet.get_all_records()
 
-cursor.execute('''CREATE TABLE IF NOT EXISTS products
-                  (id INTEGER PRIMARY KEY, name TEXT, category TEXT, price INTEGER, file_id TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS purchases
-                  (user_id INTEGER, product_id INTEGER)''')
-conn.commit()
+def get_products_by_category(category):
+    products = get_all_products()
+    return [p for p in products if p['category'] == category]
+
+def get_product_by_id(product_id):
+    products = get_all_products()
+    for p in products:
+        if p['id'] == product_id:
+            return p
+    return None
+
+def add_product_to_sheet(name, category, price, file_id):
+    products = get_all_products()
+    new_id = len(products) + 1
+    sheet.append_row([new_id, name, category, price, file_id])
+    return new_id
 
 # ===== КЛАВИАТУРЫ =====
 def user_menu():
@@ -43,32 +60,14 @@ def admin_menu():
     return markup
 
 # ===== ОЖИДАЮЩИЕ ПЛАТЕЖИ =====
-pending_payments = {}  # {user_id: {"product_id": id, "product_name": name, "price": price, "status": "waiting"}}
-
-# ===== ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ =====
-def get_products_by_category(category):
-    cursor.execute("SELECT id, name, price FROM products WHERE category=?", (category,))
-    return cursor.fetchall()
-
-def get_product_by_id(product_id):
-    cursor.execute("SELECT id, name, price, file_id FROM products WHERE id=?", (product_id,))
-    return cursor.fetchone()
-
-def add_purchase(user_id, product_id):
-    cursor.execute("INSERT INTO purchases (user_id, product_id) VALUES (?, ?)", (user_id, product_id))
-    conn.commit()
-
-def has_purchased(user_id, product_id):
-    cursor.execute("SELECT * FROM purchases WHERE user_id=? AND product_id=?", (user_id, product_id))
-    return cursor.fetchone() is not None
+pending_payments = {}
 
 # ===== ОСНОВНЫЕ КОМАНДЫ =====
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
                      "👋 Қош келдіңіз! / Добро пожаловать!\n\n"
-                     "Төмендегі мәзірден таңдаңыз:\n"
-                     "Выберите из меню ниже:",
+                     "Төмендегі мәзірден таңдаңыз:",
                      reply_markup=user_menu())
 
 @bot.message_handler(commands=['admin'])
@@ -87,67 +86,52 @@ def back_to_menu(message):
 def show_lessons(message):
     products = get_products_by_category("Ашық сабақ")
     if not products:
-        bot.send_message(message.chat.id, "📭 Әлі өнім жоқ / Пока нет товаров")
+        bot.send_message(message.chat.id, "📭 Әлі өнім жоқ")
         return
     
     for p in products:
         markup = InlineKeyboardMarkup()
-        btn = InlineKeyboardButton(f"💳 Купить {p[2]} руб", callback_data=f"buy_{p[0]}")
+        btn = InlineKeyboardButton(f"💳 Купить {p['price']} ₸", callback_data=f"buy_{p['id']}")
         markup.add(btn)
-        bot.send_message(message.chat.id, f"📘 *{p[1]}*\n💰 Цена: {p[2]} руб.", parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(message.chat.id, f"📘 *{p['name']}*\n💰 Цена: {p['price']} ₸", parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "🤖 AI видеолар")
 def show_ai(message):
     products = get_products_by_category("AI видео")
     if not products:
-        bot.send_message(message.chat.id, "📭 Әлі өнім жоқ / Пока нет товаров")
+        bot.send_message(message.chat.id, "📭 Әлі өнім жоқ")
         return
     
     for p in products:
         markup = InlineKeyboardMarkup()
-        btn = InlineKeyboardButton(f"💳 Купить {p[2]} руб", callback_data=f"buy_{p[0]}")
+        btn = InlineKeyboardButton(f"💳 Купить {p['price']} ₸", callback_data=f"buy_{p['id']}")
         markup.add(btn)
-        bot.send_message(message.chat.id, f"🎥 *{p[1]}*\n💰 Цена: {p[2]} руб.", parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(message.chat.id, f"🎥 *{p['name']}*\n💰 Цена: {p['price']} ₸", parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "🛒 Тапсырыс(24/7)")
 def order(message):
     bot.send_message(message.chat.id, 
-                     f"📞 *Байланыс / Контакты:*\n\n"
-                     f"👤 Менеджер: @{MANAGER_USERNAME}\n"
-                     f"💬 24/7 қолжетімді / Доступны 24/7\n\n"
-                     f"✏️ Напишите менеджеру для заказа!",
+                     f"📞 *Байланыс:* @{MANAGER_USERNAME}\n💬 24/7",
                      parse_mode="Markdown")
 
-# ===== ПРОЦЕСС ПОКУПКИ =====
+# ===== ПОКУПКА =====
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
 def process_buy(call):
     product_id = int(call.data.split("_")[1])
     user_id = call.from_user.id
-    
-    # Проверяем, покупал ли уже
-    if has_purchased(user_id, product_id):
-        product = get_product_by_id(product_id)
-        if product:
-            bot.send_message(call.message.chat.id, f"✅ У вас уже есть этот товар!")
-            bot.send_document(call.message.chat.id, product[3])
-        return
     
     product = get_product_by_id(product_id)
     if not product:
         bot.answer_callback_query(call.id, "❌ Товар не найден")
         return
     
-    product_id, product_name, price, file_id = product
-    
-    # Сохраняем в ожидающие платежи
     pending_payments[user_id] = {
         "product_id": product_id,
-        "product_name": product_name,
-        "price": price,
-        "status": "waiting"
+        "product_name": product['name'],
+        "price": product['price'],
+        "file_id": product['file_id']
     }
     
-    # Кнопки для оплаты
     markup = InlineKeyboardMarkup()
     btn1 = InlineKeyboardButton("📤 Отправить чек", callback_data=f"receipt_{product_id}")
     btn2 = InlineKeyboardButton("❌ Отмена", callback_data="cancel_payment")
@@ -155,18 +139,15 @@ def process_buy(call):
     
     bot.send_message(
         call.message.chat.id,
-        f"💳 *Оплата товара:* {product_name}\n"
-        f"💰 *Сумма:* {price} руб.\n\n"
+        f"💳 *Оплата товара:* {product['name']}\n"
+        f"💰 *Сумма:* {product['price']} ₸\n\n"
         f"📌 *Реквизиты для оплаты:*\n"
         f"┌─────────────────────┐\n"
-        f"│  💳 карта:4002 8900 3510 3872\n"
+        f"│  💳 Карта: 4002 8900 3510 3872\n"
         f"│  👤 Получатель: Асылмурат М.\n"
-        f"│  💰 Сумма: {price} руб.\n"
+        f"│  💰 Сумма: {product['price']} ₸\n"
         f"└─────────────────────┘\n\n"
-        f"✅ *После оплаты:*\n"
-        f"• Нажми «📤 Отправить чек»\n"
-        f"• Отправь СКРИНШОТ чека\n"
-        f"• Админ проверит и выдаст файл",
+        f"✅ *После оплаты* нажми «Отправить чек»",
         parse_mode="Markdown",
         reply_markup=markup
     )
@@ -174,21 +155,8 @@ def process_buy(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("receipt_"))
 def ask_receipt(call):
-    product_id = int(call.data.split("_")[1])
-    user_id = call.from_user.id
-    
-    if user_id not in pending_payments:
-        bot.answer_callback_query(call.id, "❌ Платеж не найден")
-        return
-    
-    bot.edit_message_text(
-        "📸 *Отправь ФОТО или СКРИНШОТ чека:*\n\n"
-        "Просто отправь мне изображение чека, и админ его проверит.\n\n"
-        "❗ Чек должен быть четким, видна сумма и дата.",
-        call.message.chat.id,
-        call.message.message_id,
-        parse_mode="Markdown"
-    )
+    bot.edit_message_text("📸 *Отправь ФОТО чека:*", 
+                          call.message.chat.id, call.message.message_id, parse_mode="Markdown")
     bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "cancel_payment")
@@ -199,7 +167,7 @@ def cancel_payment(call):
     bot.edit_message_text("❌ Оплата отменена.", call.message.chat.id, call.message.message_id)
     bot.answer_callback_query(call.id)
 
-# ===== ОБРАБОТКА ЧЕКА ОТ ПОЛЬЗОВАТЕЛЯ =====
+# ===== ОБРАБОТКА ЧЕКА =====
 @bot.message_handler(content_types=['photo'])
 def handle_receipt(message):
     user_id = message.from_user.id
@@ -207,35 +175,26 @@ def handle_receipt(message):
     user_username = message.from_user.username or "нет"
     
     if user_id not in pending_payments:
-        bot.reply_to(message, "❌ У тебя нет активного платежа. Нажми /start и выбери товар.")
+        bot.reply_to(message, "❌ У тебя нет активного платежа")
         return
     
     payment = pending_payments[user_id]
     file_id = message.photo[-1].file_id
     
-    # Кнопки для админа
     markup = InlineKeyboardMarkup()
     btn1 = InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_{user_id}")
     btn2 = InlineKeyboardButton("❌ Отказать", callback_data=f"reject_{user_id}")
     markup.add(btn1, btn2)
     
-    admin_text = (
-        f"💰 *НОВЫЙ ПЛАТЕЖ!*\n\n"
-        f"👤 Пользователь: {user_name}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"📸 Юзернейм: @{user_username}\n"
-        f"📦 Товар: {payment['product_name']}\n"
-        f"💰 Сумма: {payment['price']} руб.\n\n"
-        f"📌 Чек на фото ниже"
-    )
+    admin_text = (f"💰 *НОВЫЙ ПЛАТЕЖ!*\n\n"
+                  f"👤 {user_name} (@{user_username})\n"
+                  f"🆔 `{user_id}`\n"
+                  f"📦 {payment['product_name']}\n"
+                  f"💰 {payment['price']} ₸")
     
     bot.send_photo(ADMIN_ID, file_id, caption=admin_text, parse_mode="Markdown", reply_markup=markup)
-    
-    bot.reply_to(message, f"✅ Чек отправлен администратору!\n\n📦 Товар: {payment['product_name']}\n💰 {payment['price']} руб.\n\n⏳ Ожидай подтверждения...")
-    
-    payment["status"] = "checking"
+    bot.reply_to(message, f"✅ Чек отправлен! Ожидай.")
 
-# ===== АДМИН: ПОДТВЕРЖДЕНИЕ ОПЛАТЫ =====
 @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_"))
 def confirm_payment(call):
     if call.from_user.id != ADMIN_ID:
@@ -243,31 +202,22 @@ def confirm_payment(call):
         return
     
     user_id = int(call.data.split("_")[1])
-    
     if user_id not in pending_payments:
         bot.answer_callback_query(call.id, "❌ Платеж не найден")
         return
     
     payment = pending_payments[user_id]
-    product_id = payment["product_id"]
-    product = get_product_by_id(product_id)
     
-    if product:
-        # Сохраняем покупку
-        add_purchase(user_id, product_id)
-        
-        # Отправляем файл пользователю
-        bot.send_message(user_id, f"✅ *Оплата подтверждена!*\n\n📦 Товар: {payment['product_name']}\n📎 Вот твой файл:", parse_mode="Markdown")
-        bot.send_document(user_id, product[3])
-        
-        # Удаляем из ожидающих
-        del pending_payments[user_id]
-        
-        bot.edit_message_caption(f"✅ ПЛАТЕЖ ПОДТВЕРЖДЕН! Пользователь {user_id} получил файл.", 
-                                  call.message.chat.id, call.message.message_id)
-        bot.answer_callback_query(call.id, "✅ Подтверждено!")
-    else:
-        bot.answer_callback_query(call.id, "❌ Товар не найден")
+    if not payment.get('file_id'):
+        bot.answer_callback_query(call.id, "❌ У товара нет file_id!")
+        return
+    
+    bot.send_message(user_id, f"✅ *Оплата подтверждена!*\n\n📦 {payment['product_name']}\n📎 Вот твой файл:", parse_mode="Markdown")
+    bot.send_document(user_id, payment['file_id'])
+    
+    del pending_payments[user_id]
+    bot.edit_message_caption(f"✅ ПЛАТЕЖ ПОДТВЕРЖДЕН", call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id, "✅ Подтверждено!")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("reject_"))
 def reject_payment(call):
@@ -276,153 +226,106 @@ def reject_payment(call):
         return
     
     user_id = int(call.data.split("_")[1])
-    
     if user_id not in pending_payments:
         bot.answer_callback_query(call.id, "❌ Платеж не найден")
         return
     
     payment = pending_payments[user_id]
-    
-    # Уведомляем пользователя
-    bot.send_message(user_id, f"❌ *Оплата НЕ подтверждена!*\n\n📦 Товар: {payment['product_name']}\n💰 {payment['price']} руб.\n\n⚠️ Причина: чек не прошел проверку.\n\n📞 Свяжись с менеджером: @{MANAGER_USERNAME}", parse_mode="Markdown")
-    
+    bot.send_message(user_id, f"❌ *Оплата НЕ подтверждена!*\n\n📞 @{MANAGER_USERNAME}", parse_mode="Markdown")
     del pending_payments[user_id]
-    
-    bot.edit_message_caption(f"❌ ПЛАТЕЖ ОТКЛОНЕН! Пользователь {user_id} уведомлен.", 
-                              call.message.chat.id, call.message.message_id)
+    bot.edit_message_caption(f"❌ ПЛАТЕЖ ОТКЛОНЕН", call.message.chat.id, call.message.message_id)
     bot.answer_callback_query(call.id, "❌ Отклонено")
 
 # ===== АДМИН: ФУНКЦИИ =====
 @bot.message_handler(func=lambda m: m.text == "✅ Подтвердить оплату")
-def show_pending_admin(message):
+def show_pending(message):
     if message.from_user.id != ADMIN_ID:
         return
-    
     if not pending_payments:
         bot.send_message(message.chat.id, "📭 Нет ожидающих платежей")
         return
     
-    text = "💰 *Ожидающие платежи:*\n\n"
-    for user_id, payment in pending_payments.items():
-        text += f"👤 ID: `{user_id}`\n"
-        text += f"📦 {payment['product_name']} | {payment['price']} руб.\n"
-        text += f"📌 Статус: {payment['status']}\n\n"
-    
+    text = "💰 *Ожидающие платежи:*\n"
+    for uid, p in pending_payments.items():
+        text += f"\n👤 `{uid}`\n📦 {p['product_name']} | {p['price']} ₸"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "➕ Добавить товар")
-def add_product_start(message):
+def add_product(message):
     if message.from_user.id != ADMIN_ID:
         return
-    msg = bot.send_message(message.chat.id, "📝 Введите НАЗВАНИЕ товара:")
-    bot.register_next_step_handler(msg, get_product_name)
+    msg = bot.send_message(message.chat.id, "📝 Формат: `/add|Название|Категория|Цена|file_id`", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, process_add)
 
-def get_product_name(message):
-    name = message.text
-    msg = bot.send_message(message.chat.id, "📂 Категория (Ашық сабақ / AI видео):")
-    bot.register_next_step_handler(msg, get_product_category, name)
-
-def get_product_category(message, name):
-    category = message.text
-    msg = bot.send_message(message.chat.id, "💰 Введите ЦЕНУ (только цифры):")
-    bot.register_next_step_handler(msg, get_product_price, name, category)
-
-def get_product_price(message, name, category):
+def process_add(message):
     try:
-        price = int(message.text)
-        msg = bot.send_message(message.chat.id, "📎 Отправьте ФАЙЛ (документ, фото, видео):")
-        bot.register_next_step_handler(msg, get_product_file, name, category, price)
-    except:
-        bot.send_message(message.chat.id, "❌ Введите цифры!")
-        add_product_start(message)
-
-def get_product_file(message, name, category, price):
-    if message.document:
-        file_id = message.document.file_id
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-    elif message.video:
-        file_id = message.video.file_id
-    else:
-        bot.send_message(message.chat.id, "❌ Отправьте файл!")
-        add_product_start(message)
-        return
-    
-    cursor.execute("INSERT INTO products (name, category, price, file_id) VALUES (?, ?, ?, ?)",
-                   (name, category, price, file_id))
-    conn.commit()
-    bot.send_message(message.chat.id, f"✅ Товар '{name}' добавлен! (Цена: {price} руб.)", reply_markup=admin_menu())
+        parts = message.text.split('|')
+        if len(parts) >= 5:
+            _, name, category, price, file_id = parts[:5]
+            add_product_to_sheet(name, category, int(price), file_id)
+            bot.send_message(message.chat.id, f"✅ Товар '{name}' добавлен!", reply_markup=admin_menu())
+        else:
+            bot.send_message(message.chat.id, "❌ Формат: `/add|Название|Категория|Цена|file_id`", parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
 
 @bot.message_handler(func=lambda m: m.text == "📊 Статистика")
-def show_stats(message):
+def stats(message):
     if message.from_user.id != ADMIN_ID:
         return
-    
-    products_count = cursor.execute("SELECT COUNT(*) FROM products").fetchone()[0]
-    users_count = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM purchases").fetchone()[0]
-    sales_count = cursor.execute("SELECT COUNT(*) FROM purchases").fetchone()[0]
-    pending_count = len(pending_payments)
-    
-    bot.send_message(message.chat.id, 
-                     f"📊 *Статистика магазина*\n\n"
-                     f"📦 Товаров: {products_count}\n"
-                     f"👥 Покупателей: {users_count}\n"
-                     f"💰 Продаж: {sales_count}\n"
-                     f"⏳ Ожидают оплаты: {pending_count}",
-                     parse_mode="Markdown")
+    products = get_all_products()
+    bot.send_message(message.chat.id, f"📊 *Статистика*\n\n📦 Товаров: {len(products)}\n⏳ Ожидают: {len(pending_payments)}", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "📦 Список товаров")
-def list_products(message):
+def list_products_admin(message):
     if message.from_user.id != ADMIN_ID:
         return
-    
-    products = cursor.execute("SELECT id, name, category, price FROM products").fetchall()
+    products = get_all_products()
     if not products:
         bot.send_message(message.chat.id, "📭 Нет товаров")
         return
-    
-    text = "📦 *Список товаров:*\n\n"
+    text = "📦 *Товары:*\n"
     for p in products:
-        text += f"🆔 {p[0]}. {p[1]}\n   📂 {p[2]} | 💰 {p[3]} руб.\n\n"
+        text += f"🆔 {p['id']}. {p['name']} | {p['price']} ₸\n"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "🗑 Удалить товар")
-def delete_product_start(message):
+def delete_start(message):
     if message.from_user.id != ADMIN_ID:
         return
-    msg = bot.send_message(message.chat.id, "🗑 Введите ID товара для удаления:\n\n/lista - чтобы увидеть список")
-    bot.register_next_step_handler(msg, delete_product)
+    bot.send_message(message.chat.id, "🗑 Введите ID: /del 1")
 
+@bot.message_handler(commands=['del'])
 def delete_product(message):
+    if message.from_user.id != ADMIN_ID:
+        return
     try:
-        product_id = int(message.text)
-        cursor.execute("SELECT name FROM products WHERE id=?", (product_id,))
-        product = cursor.fetchone()
-        if product:
-            cursor.execute("DELETE FROM products WHERE id=?", (product_id,))
-            conn.commit()
-            bot.send_message(message.chat.id, f"✅ Товар '{product[0]}' удален!", reply_markup=admin_menu())
-        else:
-            bot.send_message(message.chat.id, "❌ Товар не найден")
+        pid = int(message.text.split()[1])
+        products = get_all_products()
+        for i, p in enumerate(products, start=2):
+            if p['id'] == pid:
+                sheet.delete_rows(i)
+                bot.send_message(message.chat.id, f"✅ Товар {pid} удален!")
+                return
+        bot.send_message(message.chat.id, "❌ Не найден")
     except:
-        bot.send_message(message.chat.id, "❌ Введите ID цифрой!")
+        bot.send_message(message.chat.id, "❌ /del 1")
 
 @bot.message_handler(commands=['lista'])
-def list_products_command(message):
+def lista(message):
     if message.from_user.id != ADMIN_ID:
         return
-    products = cursor.execute("SELECT id, name, price FROM products").fetchall()
+    products = get_all_products()
     if products:
         text = "📦 ID товаров:\n"
         for p in products:
-            text += f"🔹 {p[0]} - {p[1]} ({p[2]} руб.)\n"
+            text += f"🔹 {p['id']} - {p['name']} ({p['price']} ₸)\n"
         bot.send_message(message.chat.id, text)
     else:
         bot.send_message(message.chat.id, "📭 Нет товаров")
 
 # ===== ЗАПУСК =====
 if __name__ == "__main__":
-    print("🚀 БОТ ЗАПУЩЕН!")
+    print("🚀 БОТ ЗАПУЩЕН с Google Sheets!")
     print(f"👨‍💼 Админ ID: {ADMIN_ID}")
-    print(f"📞 Менеджер: @{MANAGER_USERNAME}")
     bot.infinity_polling()
