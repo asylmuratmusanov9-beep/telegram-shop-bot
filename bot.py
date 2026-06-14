@@ -71,7 +71,7 @@ def show_ai(message):
 
 @bot.message_handler(func=lambda m: m.text == "🛒 Тапсырыс(24/7)")
 def order(message):
-    bot.send_message(message.chat.id, "📞 Байланыс: @manager\n24/7 доступно")
+    bot.send_message(message.chat.id, "📞 Байланыс: @Vajnigoi\n24/7 доступно")
 
 # ===== ПОКУПКА =====
 @bot.message_handler(func=lambda m: m.text.startswith("/buy_"))
