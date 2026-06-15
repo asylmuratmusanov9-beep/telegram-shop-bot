@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ панель | Образовательный магазин</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui;
+            background: #f1f5f9;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: linear-gradient(135deg, #1e3a8a, #2563eb);
+            color: white;
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+        }
+        .login-box {
+            background: white;
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 30px;
+            border-radius: 24px;
+            text-align: center;
+        }
+        input, button {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+        }
+        .product-list {
+            display: grid;
+            gap: 15px;
+        }
+        .product-item {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .add-form {
+            background: white;
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 16px;
+            text-align: center;
+        }
+        .stat-card h3 {
+            font-size: 32px;
+            color: #2563eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="app">
+        <!-- Панель входа -->
+        <div id="login-panel" class="login-box">
+            <h2>🔐 Вход в админ-панель</h2>
+            <input type="password" id="admin-password" placeholder="Пароль">
+            <button onclick="login()">Войти</button>
+        </div>
+
+        <!-- Основная админ-панель (скрыта по умолчанию) -->
+        <div id="admin-panel" style="display: none;">
+            <div class="header">
+                <h1>👨‍💼 Админ панель</h1>
+                <p>Управление товарами магазина</p>
+            </div>
+
+            <div class="stats" id="stats"></div>
+
+            <div class="add-form">
+                <h3>➕ Добавить товар</h3>
+                <input type="text" id="product-name" placeholder="Название товара">
+                <select id="product-category">
+                    <option value="Ашық сабақ">📚 Ашық сабақ</option>
+                    <option value="AI видео">🤖 AI видео</option>
+                </select>
+                <input type="number" id="product-price" placeholder="Цена (тенге)">
+                <input type="text" id="product-preview-url" placeholder="Ссылка на превью (фото)">
+                <input type="text" id="product-file-id" placeholder="Telegram file_id">
+                <button onclick="addProduct()">➕ Добавить</button>
+            </div>
+
+            <div class="product-list" id="product-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const ADMIN_PASSWORD = 'admin123'; // Смени на свой пароль
+
+        function login() {
+            const password = document.getElementById('admin-password').value;
+            if (password === ADMIN_PASSWORD) {
+                document.getElementById('login-panel').style.display = 'none';
+                document.getElementById('admin-panel').style.display = 'block';
+                loadProducts();
+                loadStats();
+            } else {
+                alert('❌ Неверный пароль');
+            }
+        }
+
+        async function loadProducts() {
+            const res = await fetch('/api/products');
+            const products = await res.json();
+            const container = document.getElementById('product-list');
+            container.innerHTML = products.map(p => `
+                <div class="product-item">
+                    <div>
+                        <strong>${p.name}</strong><br>
+                        ${p.category} | ${p.price} ₸
+                    </div>
+                    <button onclick="deleteProduct(${p.id})" style="width: auto; background: #ef4444;">🗑 Удалить</button>
+                </div>
+            `).join('');
+        }
+
+        async function loadStats() {
+            const res = await fetch('/api/stats');
+            const stats = await res.json();
+            const container = document.getElementById('stats');
+            container.innerHTML = `
+                <div class="stat-card"><h3>${stats.totalProducts}</h3><p>Всего товаров</p></div>
+                <div class="stat-card"><h3>${stats.totalSales}</h3><p>Продаж</p></div>
+                <div class="stat-card"><h3>${stats.totalRevenue}</h3><p>₸ выручка</p></div>
+            `;
+        }
+
+        async function addProduct() {
+            const product = {
+                name: document.getElementById('product-name').value,
+                category: document.getElementById('product-category').value,
+                price: parseInt(document.getElementById('product-price').value),
+                preview_url: document.getElementById('product-preview-url').value,
+                file_id: document.getElementById('product-file-id').value
+            };
+            
+            const res = await fetch('/api/products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(product)
+            });
+            
+            if (res.ok) {
+                alert('✅ Товар добавлен!');
+                loadProducts();
+            } else {
+                alert('❌ Ошибка');
+            }
+        }
+
+        async function deleteProduct(id) {
+            if (confirm('Удалить товар?')) {
+                await fetch(`/api/products/${id}`, { method: 'DELETE' });
+                loadProducts();
+            }
+        }
+    </script>
+</body>
+</html>
