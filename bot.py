@@ -338,6 +338,15 @@ def lista(message):
     else:
         bot.send_message(message.chat.id, "📭 Нет товаров")
 
+from telebot.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+
+@bot.message_handler(commands=['shop'])
+def shop(message):
+    markup = InlineKeyboardMarkup()
+    btn = InlineKeyboardButton("🛍️ Открыть магазин", web_app=WebAppInfo(url="https://asylmuratmusanov9-beep.github.io/telegram-shop-bot/index.html"))
+    markup.add(btn)
+    bot.send_message(message.chat.id, "🛒 *Добро пожаловать в наш магазин!*\n\nВыбери товары и оформи заказ.", parse_mode="Markdown", reply_markup=markup)
+
 # ===== ЗАПУСК =====
 if __name__ == "__main__":
     print("🚀 БОТ ЗАПУЩЕН!")
