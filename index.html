@@ -242,7 +242,7 @@
         async function loadProducts() {
             try {
                 // Через твоего бота (получение товаров)
-                const response = await fetch('https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec');
+                const response = await fetch('https://script.google.com/macros/s/https://api-production-9f82.up.railway.app/exec');
                 const data = await response.json();
                 products = data;
                 renderCategories();
