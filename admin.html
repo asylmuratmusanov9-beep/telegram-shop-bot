@@ -147,7 +147,7 @@
         }
 
         async function loadStats() {
-            const res = await fetch('/api/stats');
+            const res = await fetch('https://api-production-9f82.up.railway.app');
             const stats = await res.json();
             const container = document.getElementById('stats');
             container.innerHTML = `
@@ -166,7 +166,7 @@
                 file_id: document.getElementById('product-file-id').value
             };
             
-            const res = await fetch('/api/products', {
+            const res = await fetch('https://api-production-9f82.up.railway.app', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(product)
@@ -182,7 +182,7 @@
 
         async function deleteProduct(id) {
             if (confirm('Удалить товар?')) {
-                await fetch(`/api/products/${id}`, { method: 'DELETE' });
+                await fetch(`https://api-production-9f82.up.railway.app${id}`, { method: 'DELETE' });
                 loadProducts();
             }
         }
