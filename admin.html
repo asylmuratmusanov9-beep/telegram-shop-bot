@@ -132,7 +132,7 @@
         }
 
         async function loadProducts() {
-            const res = await fetch('/api/products');
+            const res = await fetch('https://api-production-9f82.up.railway.app');
             const products = await res.json();
             const container = document.getElementById('product-list');
             container.innerHTML = products.map(p => `
