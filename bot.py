@@ -184,8 +184,7 @@ def process_buy(call):
     markup.add(InlineKeyboardButton("📤 Отправить чек", callback_data=f"receipt_{product_id}"))
     markup.add(InlineKeyboardButton("❌ Отмена", callback_data="cancel_payment"))
     
-    card_display = f"{CARD_NUMBER[:4]}****{CARD_NUMBER[-4:]}" if len(CARD_NUMBER) > 8 else CARD_NUMBER
-    
+    card_display = CARD_NUMBER
     bot.send_message(call.message.chat.id,
         f"💳 *Оплата:* {product['name']}\n💰 *Сумма:* {product['price']} ₸\n\n"
         f"📌 *Реквизиты:*\n┌─────────────────────┐\n"
