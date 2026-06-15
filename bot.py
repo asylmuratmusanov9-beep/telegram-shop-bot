@@ -4,18 +4,21 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 import os
+import re
 
 # ===== ТВОИ ДАННЫЕ =====
 BOT_TOKEN = "8699450261:AAHWOh4pVXD23O_rHXC1vpjzTl1VcjUBArg"
 ADMIN_ID = 7717714437
 MANAGER_USERNAME = "Vajnigoi"
 SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
+
+# Реквизиты из переменных окружения Railway
+CARD_NUMBER = os.environ.get('CARD_NUMBER', '1234 5678 9012 3456')
+CARD_HOLDER = os.environ.get('CARD_HOLDER', 'Асхат')
 # ========================
 
-# Подключение к Google Sheets через переменную окружения
+# Подключение к Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-# Берём ключ из переменной окружения Railway
 creds_dict = json.loads(os.environ.get('GOOGLE_CREDS'))
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gc = gspread.authorize(creds)
@@ -44,6 +47,52 @@ def add_product_to_sheet(name, category, price, file_id):
     sheet.append_row([new_id, name, category, price, file_id])
     return new_id
 
+# ===== АВТОМАТИЧЕСКОЕ ДОБАВЛЕНИЕ ТОВАРА =====
+@bot.message_handler(content_types=['document', 'photo', 'video'])
+def auto_add_product(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Только админ может добавлять товары")
+        return
+    
+    caption = message.caption or ""
+    pattern = r'^/add\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(\d+)\s*$'
+    match = re.match(pattern, caption)
+    
+    if not match:
+        bot.reply_to(message, 
+                     "❌ Неверный формат!\n\n"
+                     "Нужно: `/add |Название|Категория|Цена`\n"
+                     "Пример: `/add |Python курс|Ашық сабақ|2000`",
+                     parse_mode="Markdown")
+        return
+    
+    name = match.group(1).strip()
+    category = match.group(2).strip()
+    price = int(match.group(3))
+    
+    if message.document:
+        file_id = message.document.file_id
+        file_name = message.document.file_name
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+        file_name = "photo.jpg"
+    elif message.video:
+        file_id = message.video.file_id
+        file_name = "video.mp4"
+    else:
+        bot.reply_to(message, "❌ Неподдерживаемый тип")
+        return
+    
+    new_id = add_product_to_sheet(name, category, price, file_id)
+    
+    bot.reply_to(message,
+                 f"✅ Товар добавлен!\n\n"
+                 f"📦 {name}\n"
+                 f"📂 {category}\n"
+                 f"💰 {price} ₸\n"
+                 f"🆔 ID: {new_id}",
+                 parse_mode="Markdown")
+
 # ===== КЛАВИАТУРЫ =====
 def user_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -55,7 +104,7 @@ def user_menu():
 
 def admin_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    btn1 = KeyboardButton("➕ Добавить товар")
+    btn1 = KeyboardButton("➕ Как добавить товар")
     btn2 = KeyboardButton("📊 Статистика")
     btn3 = KeyboardButton("📦 Список товаров")
     btn4 = KeyboardButton("🗑 Удалить товар")
@@ -85,6 +134,20 @@ def admin(message):
 @bot.message_handler(func=lambda m: m.text == "🏠 Главное меню")
 def back_to_menu(message):
     bot.send_message(message.chat.id, "👋 Главное меню:", reply_markup=user_menu())
+
+@bot.message_handler(func=lambda m: m.text == "➕ Как добавить товар")
+def how_to_add(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    bot.send_message(message.chat.id,
+                     "📝 *Как добавить товар:*\n\n"
+                     "1. Нажми на скрепку 📎\n"
+                     "2. Выбери файл\n"
+                     "3. В поле «Подпись» напиши:\n"
+                     "`/add |Название|Категория|Цена`\n\n"
+                     "📌 *Пример:*\n"
+                     "`/add |Python курс|Ашық сабақ|2000`",
+                     parse_mode="Markdown")
 
 # ===== КНОПКИ ПОКУПАТЕЛЯ =====
 @bot.message_handler(func=lambda m: m.text == "📚 Ашық сабақ")
@@ -142,14 +205,20 @@ def process_buy(call):
     btn2 = InlineKeyboardButton("❌ Отмена", callback_data="cancel_payment")
     markup.add(btn1, btn2)
     
+    # Скрываем середину номера карты для безопасности
+    if len(CARD_NUMBER) > 8:
+        card_display = f"{CARD_NUMBER[:4]}****{CARD_NUMBER[-4:]}"
+    else:
+        card_display = CARD_NUMBER
+    
     bot.send_message(
         call.message.chat.id,
         f"💳 *Оплата товара:* {product['name']}\n"
         f"💰 *Сумма:* {product['price']} ₸\n\n"
         f"📌 *Реквизиты для оплаты:*\n"
         f"┌─────────────────────┐\n"
-        f"│  💳 Карта: 1234 5678 9012 3456\n"
-        f"│  👤 Получатель: Асхат\n"
+        f"│  💳 Карта: {card_display}\n"
+        f"│  👤 Получатель: {CARD_HOLDER}\n"
         f"│  💰 Сумма: {product['price']} ₸\n"
         f"└─────────────────────┘\n\n"
         f"✅ *После оплаты* нажми «Отправить чек»",
@@ -255,25 +324,6 @@ def show_pending(message):
         text += f"\n👤 `{uid}`\n📦 {p['product_name']} | {p['price']} ₸"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: m.text == "➕ Добавить товар")
-def add_product(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    msg = bot.send_message(message.chat.id, "📝 Формат: `/add|Название|Категория|Цена|file_id`", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, process_add)
-
-def process_add(message):
-    try:
-        parts = message.text.split('|')
-        if len(parts) >= 5:
-            _, name, category, price, file_id = parts[:5]
-            add_product_to_sheet(name, category, int(price), file_id)
-            bot.send_message(message.chat.id, f"✅ Товар '{name}' добавлен!", reply_markup=admin_menu())
-        else:
-            bot.send_message(message.chat.id, "❌ Формат: `/add|Название|Категория|Цена|file_id`", parse_mode="Markdown")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
-
 @bot.message_handler(func=lambda m: m.text == "📊 Статистика")
 def stats(message):
     if message.from_user.id != ADMIN_ID:
@@ -331,6 +381,6 @@ def lista(message):
 
 # ===== ЗАПУСК =====
 if __name__ == "__main__":
-    print("🚀 БОТ ЗАПУЩЕН с Google Sheets!")
+    print("🚀 БОТ ЗАПУЩЕН!")
     print(f"👨‍💼 Админ ID: {ADMIN_ID}")
     bot.infinity_polling()
