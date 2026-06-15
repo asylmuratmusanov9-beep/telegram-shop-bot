@@ -12,8 +12,8 @@ ADMIN_ID = 7717714437
 MANAGER_USERNAME = "Vajnigoi"
 SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
 
-CARD_NUMBER = os.environ.get('CARD_NUMBER', '1234 5678 9012 3456')
-CARD_HOLDER = os.environ.get('CARD_HOLDER', 'Асхат')
+CARD_NUMBER = "4002890035103872"
+CARD_HOLDER = "Асылмурат М."
 # ========================
 
 # Подключение к Google Sheets
