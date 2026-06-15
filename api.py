@@ -6,7 +6,7 @@ CORS(app)
 
 @app.route('/')
 def home():
-    return jsonify({'status': 'ok', 'message': 'API работает!'})
+    return jsonify({'status': 'ok', 'message': 'API works!'})
 
 @app.route('/api/products')
 def get_products():
