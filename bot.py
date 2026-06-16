@@ -346,6 +346,36 @@ def shop(message):
     btn = InlineKeyboardButton("🛍️ Открыть магазин", web_app=WebAppInfo(url="https://asylmuratmusanov9-beep.github.io/telegram-shop-bot/index.html"))
     markup.add(btn)
     bot.send_message(message.chat.id, "🛒 *Добро пожаловать в наш магазин!*\n\nВыбери товары и оформи заказ.", parse_mode="Markdown", reply_markup=markup)
+    @bot.message_handler(content_types=['web_app_data'])
+def handle_web_app(message):
+    try:
+        data = json.loads(message.web_app_data.data)
+        cart = data.get('cart', [])
+        total = data.get('total', 0)
+        user_id = message.from_user.id
+
+        # Формируем текст заказа
+        order_text = "🛍 *Новый заказ из магазина!*\n\n"
+        for item in cart:
+            order_text += f"📦 {item['name']} x{item['quantity']} = {item['price'] * item['quantity']} ₸\n"
+        order_text += f"\n💰 *Итого:* {total} ₸"
+        order_text += f"\n👤 Покупатель: [{message.from_user.first_name}](tg://user?id={user_id})"
+
+        # Отправляем админу
+        bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown")
+
+        # Сохраняем заказ в базе или отправляем ссылку на оплату
+        bot.send_message(
+            user_id,
+            "✅ *Заказ принят!*\n\n"
+            "💳 Для оплаты переведите сумму на карту:\n"
+            f"`{CARD_NUMBER}`\n"
+            f"Получатель: {CARD_HOLDER}\n\n"
+            "📸 *После оплаты отправьте чек сюда*",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"Ошибка в заказе: {e}")
 
 # ===== ЗАПУСК =====
 if __name__ == "__main__":
