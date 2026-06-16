@@ -1,6 +1,5 @@
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from telebot.types import WebAppInfo
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
@@ -47,11 +46,21 @@ def add_product_to_sheet(name, category, price, file_id):
     sheet.append_row([new_id, name, category, price, file_id])
     return new_id
 
+def search_products(query):
+    """Поиск товаров по названию"""
+    products = get_all_products()
+    query_lower = query.lower()
+    results = []
+    for p in products:
+        if query_lower in p['name'].lower():
+            results.append(p)
+    return results
+
 # ===== КЛАВИАТУРЫ =====
 def user_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(KeyboardButton("📚 Ашық сабақ"), KeyboardButton("🤖 AI видеолар"))
-    markup.add(KeyboardButton("🛒 Тапсырыс(24/7)"))
+    markup.add(KeyboardButton("🔍 Поиск"), KeyboardButton("🛒 Тапсырыс(24/7)"))
     return markup
 
 def admin_menu():
@@ -67,7 +76,7 @@ pending_payments = {}
 # ===== ОСНОВНЫЕ КОМАНДЫ =====
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "👋 Қош келдіңіз!", reply_markup=user_menu())
+    bot.send_message(message.chat.id, "👋 Қош келдіңіз! / Добро пожаловать!", reply_markup=user_menu())
 
 @bot.message_handler(commands=['admin'])
 def admin(message):
@@ -76,16 +85,43 @@ def admin(message):
     else:
         bot.send_message(message.chat.id, "⛔ Доступ запрещен!")
 
-@bot.message_handler(commands=['shop'])
-def shop(message):
-    markup = InlineKeyboardMarkup()
-    btn = InlineKeyboardButton("🛍️ Открыть магазин", web_app=WebAppInfo(url="https://asylmuratmusanov9-beep.github.io/telegram-shop-bot/index.html"))
-    markup.add(btn)
-    bot.send_message(message.chat.id, "🛒 *Добро пожаловать в магазин!*", parse_mode="Markdown", reply_markup=markup)
-
 @bot.message_handler(func=lambda m: m.text == "🏠 Главное меню")
 def back_to_menu(message):
     bot.send_message(message.chat.id, "👋 Главное меню:", reply_markup=user_menu())
+
+@bot.message_handler(func=lambda m: m.text == "🔍 Поиск")
+def search_start(message):
+    msg = bot.send_message(message.chat.id, "🔍 *Введите название материала:*", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, process_search)
+
+def process_search(message):
+    query = message.text
+    results = search_products(query)
+    
+    if not results:
+        bot.send_message(message.chat.id, "❌ Ничего не найдено. Попробуй другой запрос.")
+        return
+    
+    for p in results:
+        show_product(message.chat.id, p)
+
+def show_product(chat_id, product):
+    """Показывает один товар с превью (если есть)"""
+    caption = f"📘 *{product['name']}*\n💰 Цена: {product['price']} ₸\n📂 Категория: {product['category']}"
+    
+    markup = InlineKeyboardMarkup()
+    btn = InlineKeyboardButton(f"💳 Купить {product['price']} ₸", callback_data=f"buy_{product['id']}")
+    markup.add(btn)
+    
+    # Если есть превью — отправляем с картинкой
+    if product.get('preview_url') and product['preview_url']:
+        try:
+            bot.send_photo(chat_id, product['preview_url'], caption=caption, parse_mode="Markdown", reply_markup=markup)
+        except:
+            # Если ссылка битая — отправляем текстом
+            bot.send_message(chat_id, caption + "\n\n🖼️ Превью недоступно", parse_mode="Markdown", reply_markup=markup)
+    else:
+        bot.send_message(chat_id, caption, parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "➕ Как добавить товар")
 def how_to_add(message):
@@ -101,10 +137,7 @@ def show_lessons(message):
         bot.send_message(message.chat.id, "📭 Әлі өнім жоқ")
         return
     for p in products:
-        markup = InlineKeyboardMarkup()
-        btn = InlineKeyboardButton(f"💳 Купить {p['price']} ₸", callback_data=f"buy_{p['id']}")
-        markup.add(btn)
-        bot.send_message(message.chat.id, f"📘 *{p['name']}*\n💰 {p['price']} ₸", parse_mode="Markdown", reply_markup=markup)
+        show_product(message.chat.id, p)
 
 @bot.message_handler(func=lambda m: m.text == "🤖 AI видеолар")
 def show_ai(message):
@@ -113,10 +146,7 @@ def show_ai(message):
         bot.send_message(message.chat.id, "📭 Әлі өнім жоқ")
         return
     for p in products:
-        markup = InlineKeyboardMarkup()
-        btn = InlineKeyboardButton(f"💳 Купить {p['price']} ₸", callback_data=f"buy_{p['id']}")
-        markup.add(btn)
-        bot.send_message(message.chat.id, f"🎥 *{p['name']}*\n💰 {p['price']} ₸", parse_mode="Markdown", reply_markup=markup)
+        show_product(message.chat.id, p)
 
 @bot.message_handler(func=lambda m: m.text == "🛒 Тапсырыс(24/7)")
 def order(message):
@@ -325,6 +355,13 @@ def handle_files(message):
                 bot.reply_to(message, "❌ Неподдерживаемый тип")
                 return
             
+            # Пытаемся извлечь preview_url из подписи (если есть)
+            preview_url = ""
+            # Если в подписи есть ссылка на картинку — берём её
+            url_match = re.search(r'(https?://[^\s]+\.(?:jpg|png|jpeg|gif|webp))', caption)
+            if url_match:
+                preview_url = url_match.group(1)
+            
             new_id = add_product_to_sheet(name, category, price, file_id)
             bot.reply_to(message, f"✅ Товар добавлен!\n\n📦 {name}\n📂 {category}\n💰 {price} ₸\n🆔 ID: {new_id}", parse_mode="Markdown")
         return
@@ -340,38 +377,6 @@ def handle_files(message):
         bot.reply_to(message, "❌ Неверный формат!\n\nНужно: `/add |Название|Категория|Цена`", parse_mode="Markdown")
     else:
         bot.reply_to(message, "❌ У тебя нет активного платежа. Нажми /start и выбери товар.")
-
-# ===== ОБРАБОТЧИК ЗАКАЗОВ ИЗ МИНИ-АППА =====
-@bot.message_handler(content_types=['web_app_data'])
-def handle_web_app(message):
-    try:
-        # Отладка: сообщение админу о том, что запрос получен
-        bot.send_message(ADMIN_ID, "🔔 Получен web_app_data!")
-
-        data = json.loads(message.web_app_data.data)
-        cart = data.get('cart', [])
-        total = data.get('total', 0)
-        user_id = message.from_user.id
-
-        order_text = "🛍 *Новый заказ из магазина!*\n\n"
-        for item in cart:
-            order_text += f"📦 {item['name']} x{item['quantity']} = {item['price'] * item['quantity']} ₸\n"
-        order_text += f"\n💰 *Итого:* {total} ₸"
-        order_text += f"\n👤 Покупатель: [{message.from_user.first_name}](tg://user?id={user_id})"
-
-        bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown")
-
-        bot.send_message(
-            user_id,
-            "✅ *Заказ принят!*\n\n"
-            "💳 Для оплаты переведите сумму на карту:\n"
-            f"`{CARD_NUMBER}`\n"
-            f"Получатель: {CARD_HOLDER}\n\n"
-            "📸 *После оплаты отправьте чек сюда*",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"❌ Ошибка в заказе: {e}")
 
 # ===== ЗАПУСК =====
 if __name__ == "__main__":
