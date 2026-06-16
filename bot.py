@@ -47,49 +47,6 @@ def add_product_to_sheet(name, category, price, file_id):
     sheet.append_row([new_id, name, category, price, file_id])
     return new_id
 
-# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА (ТОЛЬКО ДЛЯ АДМИНА) =====
-@bot.message_handler(content_types=['document', 'photo', 'video'])
-def handle_files(message):
-    user_id = message.from_user.id
-    
-    caption = message.caption or ""
-    is_add_command = re.match(r'^/add\s*\|\s*.+?\s*\|\s*.+?\s*\|\s*\d+\s*$', caption)
-    
-    if is_add_command and user_id == ADMIN_ID:
-        pattern = r'^/add\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(\d+)\s*$'
-        match = re.match(pattern, caption)
-        
-        if match:
-            name = match.group(1).strip()
-            category = match.group(2).strip()
-            price = int(match.group(3))
-            
-            if message.document:
-                file_id = message.document.file_id
-            elif message.photo:
-                file_id = message.photo[-1].file_id
-            elif message.video:
-                file_id = message.video.file_id
-            else:
-                bot.reply_to(message, "❌ Неподдерживаемый тип")
-                return
-            
-            new_id = add_product_to_sheet(name, category, price, file_id)
-            bot.reply_to(message, f"✅ Товар добавлен!\n\n📦 {name}\n📂 {category}\n💰 {price} ₸\n🆔 ID: {new_id}", parse_mode="Markdown")
-        return
-    
-    if user_id in pending_payments:
-        if message.photo:
-            handle_receipt(message)
-        else:
-            bot.reply_to(message, "❌ Отправьте фото чека")
-        return
-    
-    if user_id == ADMIN_ID:
-        bot.reply_to(message, "❌ Неверный формат!\n\nНужно: `/add |Название|Категория|Цена`", parse_mode="Markdown")
-    else:
-        bot.reply_to(message, "❌ У тебя нет активного платежа. Нажми /start и выбери товар.")
-
 # ===== КЛАВИАТУРЫ =====
 def user_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -341,10 +298,56 @@ def lista(message):
     else:
         bot.send_message(message.chat.id, "📭 Нет товаров")
 
+# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА (ТОЛЬКО ДЛЯ АДМИНА) =====
+@bot.message_handler(content_types=['document', 'photo', 'video'])
+def handle_files(message):
+    user_id = message.from_user.id
+    
+    caption = message.caption or ""
+    is_add_command = re.match(r'^/add\s*\|\s*.+?\s*\|\s*.+?\s*\|\s*\d+\s*$', caption)
+    
+    if is_add_command and user_id == ADMIN_ID:
+        pattern = r'^/add\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(\d+)\s*$'
+        match = re.match(pattern, caption)
+        
+        if match:
+            name = match.group(1).strip()
+            category = match.group(2).strip()
+            price = int(match.group(3))
+            
+            if message.document:
+                file_id = message.document.file_id
+            elif message.photo:
+                file_id = message.photo[-1].file_id
+            elif message.video:
+                file_id = message.video.file_id
+            else:
+                bot.reply_to(message, "❌ Неподдерживаемый тип")
+                return
+            
+            new_id = add_product_to_sheet(name, category, price, file_id)
+            bot.reply_to(message, f"✅ Товар добавлен!\n\n📦 {name}\n📂 {category}\n💰 {price} ₸\n🆔 ID: {new_id}", parse_mode="Markdown")
+        return
+    
+    if user_id in pending_payments:
+        if message.photo:
+            handle_receipt(message)
+        else:
+            bot.reply_to(message, "❌ Отправьте фото чека")
+        return
+    
+    if user_id == ADMIN_ID:
+        bot.reply_to(message, "❌ Неверный формат!\n\nНужно: `/add |Название|Категория|Цена`", parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "❌ У тебя нет активного платежа. Нажми /start и выбери товар.")
+
 # ===== ОБРАБОТЧИК ЗАКАЗОВ ИЗ МИНИ-АППА =====
 @bot.message_handler(content_types=['web_app_data'])
 def handle_web_app(message):
     try:
+        # Отладка: сообщение админу о том, что запрос получен
+        bot.send_message(ADMIN_ID, "🔔 Получен web_app_data!")
+
         data = json.loads(message.web_app_data.data)
         cart = data.get('cart', [])
         total = data.get('total', 0)
@@ -368,7 +371,7 @@ def handle_web_app(message):
             parse_mode="Markdown"
         )
     except Exception as e:
-        bot.send_message(ADMIN_ID, f"Ошибка в заказе: {e}")
+        bot.send_message(ADMIN_ID, f"❌ Ошибка в заказе: {e}")
 
 # ===== ЗАПУСК =====
 if __name__ == "__main__":
