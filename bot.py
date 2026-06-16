@@ -1,5 +1,6 @@
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import WebAppInfo
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
@@ -51,11 +52,9 @@ def add_product_to_sheet(name, category, price, file_id):
 def handle_files(message):
     user_id = message.from_user.id
     
-    # Проверяем, есть ли подпись с командой /add
     caption = message.caption or ""
     is_add_command = re.match(r'^/add\s*\|\s*.+?\s*\|\s*.+?\s*\|\s*\d+\s*$', caption)
     
-    # Если это команда /add и пользователь админ → добавляем товар
     if is_add_command and user_id == ADMIN_ID:
         pattern = r'^/add\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(\d+)\s*$'
         match = re.match(pattern, caption)
@@ -79,16 +78,13 @@ def handle_files(message):
             bot.reply_to(message, f"✅ Товар добавлен!\n\n📦 {name}\n📂 {category}\n💰 {price} ₸\n🆔 ID: {new_id}", parse_mode="Markdown")
         return
     
-    # Если это НЕ команда /add, проверяем ожидающие платежи (чек)
     if user_id in pending_payments:
-        # Это чек от покупателя
         if message.photo:
             handle_receipt(message)
         else:
             bot.reply_to(message, "❌ Отправьте фото чека")
         return
     
-    # Если ничего из вышеперечисленного
     if user_id == ADMIN_ID:
         bot.reply_to(message, "❌ Неверный формат!\n\nНужно: `/add |Название|Категория|Цена`", parse_mode="Markdown")
     else:
@@ -122,6 +118,13 @@ def admin(message):
         bot.send_message(message.chat.id, "👨‍💼 Админ панелі:", reply_markup=admin_menu())
     else:
         bot.send_message(message.chat.id, "⛔ Доступ запрещен!")
+
+@bot.message_handler(commands=['shop'])
+def shop(message):
+    markup = InlineKeyboardMarkup()
+    btn = InlineKeyboardButton("🛍️ Открыть магазин", web_app=WebAppInfo(url="https://asylmuratmusanov9-beep.github.io/telegram-shop-bot/index.html"))
+    markup.add(btn)
+    bot.send_message(message.chat.id, "🛒 *Добро пожаловать в магазин!*", parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "🏠 Главное меню")
 def back_to_menu(message):
@@ -338,15 +341,8 @@ def lista(message):
     else:
         bot.send_message(message.chat.id, "📭 Нет товаров")
 
-from telebot.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
-
-@bot.message_handler(commands=['shop'])
-def shop(message):
-    markup = InlineKeyboardMarkup()
-    btn = InlineKeyboardButton("🛍️ Открыть магазин", web_app=WebAppInfo(url="https://asylmuratmusanov9-beep.github.io/telegram-shop-bot/index.html"))
-    markup.add(btn)
-    bot.send_message(message.chat.id, "🛒 *Добро пожаловать в наш магазин!*\n\nВыбери товары и оформи заказ.", parse_mode="Markdown", reply_markup=markup)
-    @bot.message_handler(content_types=['web_app_data'])
+# ===== ОБРАБОТЧИК ЗАКАЗОВ ИЗ МИНИ-АППА =====
+@bot.message_handler(content_types=['web_app_data'])
 def handle_web_app(message):
     try:
         data = json.loads(message.web_app_data.data)
@@ -354,17 +350,14 @@ def handle_web_app(message):
         total = data.get('total', 0)
         user_id = message.from_user.id
 
-        # Формируем текст заказа
         order_text = "🛍 *Новый заказ из магазина!*\n\n"
         for item in cart:
             order_text += f"📦 {item['name']} x{item['quantity']} = {item['price'] * item['quantity']} ₸\n"
         order_text += f"\n💰 *Итого:* {total} ₸"
         order_text += f"\n👤 Покупатель: [{message.from_user.first_name}](tg://user?id={user_id})"
 
-        # Отправляем админу
         bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown")
 
-        # Сохраняем заказ в базе или отправляем ссылку на оплату
         bot.send_message(
             user_id,
             "✅ *Заказ принят!*\n\n"
