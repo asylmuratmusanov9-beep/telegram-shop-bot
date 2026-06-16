@@ -83,14 +83,12 @@
 </head>
 <body>
     <div class="container" id="app">
-        <!-- Панель входа -->
         <div id="login-panel" class="login-box">
             <h2>🔐 Вход в админ-панель</h2>
             <input type="password" id="admin-password" placeholder="Пароль">
             <button onclick="login()">Войти</button>
         </div>
 
-        <!-- Основная админ-панель (скрыта по умолчанию) -->
         <div id="admin-panel" style="display: none;">
             <div class="header">
                 <h1>👨‍💼 Админ панель</h1>
@@ -117,7 +115,8 @@
     </div>
 
     <script>
-        const ADMIN_PASSWORD = 'admin123'; // Смени на свой пароль
+        const API_URL = 'https://api-production-9f82.up.railway.app';
+        const ADMIN_PASSWORD = 'admin123';
 
         function login() {
             const password = document.getElementById('admin-password').value;
@@ -132,7 +131,7 @@
         }
 
         async function loadProducts() {
-            const res = await fetch('https://api-production-9f82.up.railway.app');
+            const res = await fetch(`${API_URL}/api/products`);
             const products = await res.json();
             const container = document.getElementById('product-list');
             container.innerHTML = products.map(p => `
@@ -147,7 +146,7 @@
         }
 
         async function loadStats() {
-            const res = await fetch('https://api-production-9f82.up.railway.app');
+            const res = await fetch(`${API_URL}/api/stats`);
             const stats = await res.json();
             const container = document.getElementById('stats');
             container.innerHTML = `
@@ -166,7 +165,7 @@
                 file_id: document.getElementById('product-file-id').value
             };
             
-            const res = await fetch('https://api-production-9f82.up.railway.app', {
+            const res = await fetch(`${API_URL}/api/products`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(product)
@@ -182,7 +181,7 @@
 
         async function deleteProduct(id) {
             if (confirm('Удалить товар?')) {
-                await fetch(`https://api-production-9f82.up.railway.app${id}`, { method: 'DELETE' });
+                await fetch(`${API_URL}/api/products/${id}`, { method: 'DELETE' });
                 loadProducts();
             }
         }
