@@ -5,9 +5,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 import json
 import os
 import re
+from datetime import datetime
 
 # ===== ТВОИ ДАННЫЕ =====
-BOT_TOKEN ="8699450261:AAHaVZreEsFFM__QOBY_vrnOiy4cV_Rk9P4"
+BOT_TOKEN = "8699450261:AAHaVZreEsFFM__QOBY_vrnOiy4cV_Rk9P4"
 ADMIN_ID = 7717714437
 MANAGER_USERNAME = "Vajnigoi"
 SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
@@ -23,6 +24,13 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).sheet1
 
+# Создаём лист для покупок, если его нет
+try:
+    purchases_sheet = gc.open_by_key(SHEET_ID).worksheet("purchases")
+except:
+    purchases_sheet = gc.open_by_key(SHEET_ID).add_worksheet("purchases", 100, 7)
+    purchases_sheet.append_row(["id", "user_id", "username", "product_name", "price", "status", "date"])
+
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # ===== ФУНКЦИИ =====
@@ -31,7 +39,7 @@ def get_all_products():
 
 def get_products_by_category(category):
     products = get_all_products()
-    return [p for p in products if p['category'] == category]
+    return [p for p in products if p['category'].strip() == category.strip()]
 
 def get_product_by_id(product_id):
     products = get_all_products()
@@ -47,7 +55,6 @@ def add_product_to_sheet(name, category, price, file_id):
     return new_id
 
 def search_products(query):
-    """Поиск товаров по названию"""
     products = get_all_products()
     query_lower = query.lower()
     results = []
@@ -56,11 +63,28 @@ def search_products(query):
             results.append(p)
     return results
 
+def add_purchase(user_id, username, product_name, price):
+    try:
+        records = purchases_sheet.get_all_records()
+        new_id = len(records) + 1
+        purchases_sheet.append_row([
+            new_id,
+            user_id,
+            username,
+            product_name,
+            price,
+            "оплачено",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ])
+    except Exception as e:
+        print(f"Ошибка сохранения покупки: {e}")
+
 # ===== КЛАВИАТУРЫ =====
 def user_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(KeyboardButton("📚 Ашық сабақ"), KeyboardButton("🤖 AI видеолар"))
     markup.add(KeyboardButton("🔍 Поиск"), KeyboardButton("🛒 Тапсырыс(24/7)"))
+    markup.add(KeyboardButton("❓ Помощь"))
     return markup
 
 def admin_menu():
@@ -68,6 +92,7 @@ def admin_menu():
     markup.add(KeyboardButton("➕ Как добавить товар"), KeyboardButton("📊 Статистика"))
     markup.add(KeyboardButton("📦 Список товаров"), KeyboardButton("🗑 Удалить товар"))
     markup.add(KeyboardButton("✅ Подтвердить оплату"), KeyboardButton("🏠 Главное меню"))
+    markup.add(KeyboardButton("📋 История покупок"))
     return markup
 
 # ===== ОЖИДАЮЩИЕ ПЛАТЕЖИ =====
@@ -89,6 +114,42 @@ def admin(message):
 def back_to_menu(message):
     bot.send_message(message.chat.id, "👋 Главное меню:", reply_markup=user_menu())
 
+# ===== ПОМОЩЬ =====
+@bot.message_handler(func=lambda m: m.text == "❓ Помощь")
+def help_start(message):
+    bot.send_message(
+        message.chat.id,
+        "📝 *Как мы можем помочь?*\n\n"
+        "Напишите свой вопрос или опишите проблему.\n"
+        "Мы свяжемся с вами в ближайшее время!",
+        parse_mode="Markdown"
+    )
+    msg = bot.send_message(message.chat.id, "✍️ *Напишите ваш вопрос:*", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, send_help_to_admin)
+
+def send_help_to_admin(message):
+    user_id = message.from_user.id
+    username = message.from_user.username or "нет"
+    first_name = message.from_user.first_name
+    question = message.text
+    
+    admin_text = (
+        f"🆘 *Новый вопрос от пользователя!*\n\n"
+        f"👤 Имя: {first_name}\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"📸 Username: @{username}\n\n"
+        f"📝 *Вопрос:*\n{question}"
+    )
+    
+    bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
+    bot.send_message(
+        message.chat.id,
+        "✅ *Ваш вопрос отправлен!*\n\n"
+        "Мы ответим вам в ближайшее время.",
+        parse_mode="Markdown"
+    )
+
+# ===== ПОИСК =====
 @bot.message_handler(func=lambda m: m.text == "🔍 Поиск")
 def search_start(message):
     msg = bot.send_message(message.chat.id, "🔍 *Введите название материала:*", parse_mode="Markdown")
@@ -106,28 +167,19 @@ def process_search(message):
         show_product(message.chat.id, p)
 
 def show_product(chat_id, product):
-    """Показывает один товар с превью (если есть)"""
     caption = f"📘 *{product['name']}*\n💰 Цена: {product['price']} ₸\n📂 Категория: {product['category']}"
     
     markup = InlineKeyboardMarkup()
     btn = InlineKeyboardButton(f"💳 Купить {product['price']} ₸", callback_data=f"buy_{product['id']}")
     markup.add(btn)
     
-    # Если есть превью — отправляем с картинкой
     if product.get('preview_url') and product['preview_url']:
         try:
             bot.send_photo(chat_id, product['preview_url'], caption=caption, parse_mode="Markdown", reply_markup=markup)
         except:
-            # Если ссылка битая — отправляем текстом
             bot.send_message(chat_id, caption + "\n\n🖼️ Превью недоступно", parse_mode="Markdown", reply_markup=markup)
     else:
         bot.send_message(chat_id, caption, parse_mode="Markdown", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text == "➕ Как добавить товар")
-def how_to_add(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    bot.send_message(message.chat.id, "📝 *Как добавить товар:*\n\n1. Нажми на скрепку 📎\n2. Выбери файл\n3. В подписи напиши:\n`/add |Название|Категория|Цена`\n\nПример: `/add |Python курс|Ашық сабақ|2000`", parse_mode="Markdown")
 
 # ===== КНОПКИ ПОКУПАТЕЛЯ =====
 @bot.message_handler(func=lambda m: m.text == "📚 Ашық сабақ")
@@ -236,6 +288,10 @@ def confirm_payment(call):
         bot.answer_callback_query(call.id, "❌ У товара нет file_id!")
         return
     
+    # Сохраняем покупку
+    username = bot.get_chat(user_id).username or "нет"
+    add_purchase(user_id, username, payment['product_name'], payment['price'])
+    
     bot.send_message(user_id, f"✅ *Оплата подтверждена!*\n\n📦 {payment['product_name']}\n📎 Вот твой файл:", parse_mode="Markdown")
     bot.send_document(user_id, payment['file_id'])
     
@@ -279,6 +335,22 @@ def stats(message):
         return
     products = get_all_products()
     bot.send_message(message.chat.id, f"📊 *Статистика*\n\n📦 Товаров: {len(products)}\n⏳ Ожидают: {len(pending_payments)}", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text == "📋 История покупок")
+def purchase_history(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        records = purchases_sheet.get_all_records()
+        if not records:
+            bot.send_message(message.chat.id, "📭 История покупок пуста")
+            return
+        text = "📋 *История покупок:*\n\n"
+        for r in records[-20:]:  # последние 20
+            text += f"🆔 {r['id']} | {r['username']} | {r['product_name']} | {r['price']} ₸ | {r['date']}\n"
+        bot.send_message(message.chat.id, text, parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
 
 @bot.message_handler(func=lambda m: m.text == "📦 Список товаров")
 def list_products_admin(message):
@@ -328,7 +400,7 @@ def lista(message):
     else:
         bot.send_message(message.chat.id, "📭 Нет товаров")
 
-# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА (ТОЛЬКО ДЛЯ АДМИНА) =====
+# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА =====
 @bot.message_handler(content_types=['document', 'photo', 'video'])
 def handle_files(message):
     user_id = message.from_user.id
@@ -354,13 +426,6 @@ def handle_files(message):
             else:
                 bot.reply_to(message, "❌ Неподдерживаемый тип")
                 return
-            
-            # Пытаемся извлечь preview_url из подписи (если есть)
-            preview_url = ""
-            # Если в подписи есть ссылка на картинку — берём её
-            url_match = re.search(r'(https?://[^\s]+\.(?:jpg|png|jpeg|gif|webp))', caption)
-            if url_match:
-                preview_url = url_match.group(1)
             
             new_id = add_product_to_sheet(name, category, price, file_id)
             bot.reply_to(message, f"✅ Товар добавлен!\n\n📦 {name}\n📂 {category}\n💰 {price} ₸\n🆔 ID: {new_id}", parse_mode="Markdown")
