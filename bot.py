@@ -7,7 +7,7 @@ import os
 import re
 
 # ===== ТВОИ ДАННЫЕ =====
-BOT_TOKEN = "8699450261:AAHWOh4pVXD23O_rHXC1vpjzTl1VcjUBArg"
+BOT_TOKEN ="8699450261:AAHaVZreEsFFM__QOBY_vrnOiy4cV_Rk9P4"
 ADMIN_ID = 7717714437
 MANAGER_USERNAME = "Vajnigoi"
 SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
