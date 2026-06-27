@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 
 # ===== ТВОИ ДАННЫЕ =====
-BOT_TOKEN = "8699450261:AAHnVIkE5fwj18MdkkYvv4BqS--N5BEAumM"
+BOT_TOKEN = "8699450261:AAGuPM36Sym3yGjlkqaZkb4ajOcOXdNNJqI"
 ADMIN_ID = 7717714437
 MANAGER_USERNAME = "Vajnigoi"
 SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
@@ -90,6 +90,7 @@ def add_purchase(user_id, username, product_name, price):
 def user_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(KeyboardButton("📚 Ашық сабақ"), KeyboardButton("🤖 AI видеолар"))
+    markup.add(KeyboardButton("📝 БЖБ/ТЖБ/Емтихан"))
     markup.add(KeyboardButton("🔍 Поиск"), KeyboardButton("📁 Мои покупки"))
     markup.add(KeyboardButton("🛒 Тапсырыс(24/7)"), KeyboardButton("❓ Помощь"))
     return markup
@@ -106,7 +107,7 @@ def admin_menu():
 pending_payments = {}
 
 # ===== ВРЕМЕННОЕ ХРАНИЛИЩЕ ДЛЯ ДОБАВЛЕНИЯ ТОВАРА =====
-temp_products = {}  # {user_id: {"name": "", "category": "", "price": 0, "preview_id": ""}}
+temp_products = {}
 
 # ===== ОСНОВНЫЕ КОМАНДЫ =====
 @bot.message_handler(commands=['start'])
@@ -283,6 +284,15 @@ def show_ai(message):
     for p in products:
         show_product(message.chat.id, p)
 
+@bot.message_handler(func=lambda m: m.text == "📝 БЖБ/ТЖБ/Емтихан")
+def show_exams(message):
+    products = get_products_by_category("БЖБ/ТЖБ/Емтихан")
+    if not products:
+        bot.send_message(message.chat.id, "📭 БЖБ/ТЖБ/Емтихан бойынша әлі өнім жоқ")
+        return
+    for p in products:
+        show_product(message.chat.id, p)
+
 @bot.message_handler(func=lambda m: m.text == "🛒 Тапсырыс(24/7)")
 def order(message):
     bot.send_message(message.chat.id, f"📞 *Байланыс:* @{MANAGER_USERNAME}\n💬 24/7", parse_mode="Markdown")
@@ -444,12 +454,13 @@ def how_to_add(message):
         "1️⃣ Отправьте ПРЕВЬЮ (фото) с подписью:\n"
         "`/add Название Категория Цена`\n\n"
         "📌 *Пример:*\n"
-        "`/add Python курс Ашық сабақ 2000`\n\n"
-        "2️⃣ Отправьте САМ МАТЕРИАЛ (документ, видео)\n"
-        "БЕЗ подписи!\n\n"
-        "Категории:\n"
+        "`/add 6-сынып БЖБ 3-токсан БЖБ/ТЖБ/Емтихан 500`\n\n"
+        "📂 *Категории:*\n"
         "• Ашық сабақ\n"
-        "• AI видео",
+        "• AI видео\n"
+        "• БЖБ/ТЖБ/Емтихан\n\n"
+        "2️⃣ Отправьте САМ МАТЕРИАЛ (документ, видео)\n"
+        "БЕЗ подписи!",
         parse_mode="Markdown"
     )
 
@@ -501,13 +512,12 @@ def lista(message):
     else:
         bot.send_message(message.chat.id, "📭 Нет товаров")
 
-# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА (1 — ПРЕВЬЮ, 2 — МАТЕРИАЛ) =====
+# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА =====
 @bot.message_handler(content_types=['document', 'photo', 'video'])
 def handle_files(message):
     user_id = message.from_user.id
     
     if user_id != ADMIN_ID:
-        # Если не админ — проверяем, может это чек
         if user_id in pending_payments and message.photo:
             handle_receipt(message)
         else:
@@ -516,16 +526,13 @@ def handle_files(message):
     
     caption = message.caption or ""
     
-    # Проверяем, есть ли команда /add в подписи
     match = re.match(r'^/add\s+(.+?)\s+(.+?)\s+(\d+)$', caption)
     
-    # Если есть команда /add — это ПЕРВЫЙ файл (превью)
     if match:
         name = match.group(1).strip()
         category = match.group(2).strip()
         price = int(match.group(3))
         
-        # Получаем file_id превью
         if message.photo:
             preview_id = message.photo[-1].file_id
         elif message.document:
@@ -536,7 +543,6 @@ def handle_files(message):
             bot.reply_to(message, "❌ Неподдерживаемый тип для превью")
             return
         
-        # Сохраняем в временное хранилище
         temp_products[user_id] = {
             "name": name,
             "category": category,
@@ -550,22 +556,19 @@ def handle_files(message):
             f"📦 Название: {name}\n"
             f"📂 Категория: {category}\n"
             f"💰 Цена: {price} ₸\n\n"
-            "📎 *Теперь отправьте САМ МАТЕРИАЛ* (файл, видео, документ)\n"
+            "📎 *Теперь отправьте САМ МАТЕРИАЛ*\n"
             "Без подписи!",
             parse_mode="Markdown"
         )
         return
     
-    # Если НЕТ команды /add — это ВТОРОЙ файл (материал)
     if user_id in temp_products:
-        # Получаем данные из временного хранилища
         data = temp_products[user_id]
         name = data["name"]
         category = data["category"]
         price = data["price"]
         preview_id = data["preview_id"]
         
-        # Получаем file_id материала
         if message.document:
             file_id = message.document.file_id
         elif message.photo:
@@ -576,19 +579,15 @@ def handle_files(message):
             bot.reply_to(message, "❌ Неподдерживаемый тип файла")
             return
         
-        # Добавляем в Google Sheets
         new_id = add_product_to_sheet(name, category, price, file_id)
         
-        # Обновляем preview_url в таблице
         try:
             products = get_all_products()
             row_num = len(products) + 1
-            # Пытаемся сохранить превью как ссылку (если это фото)
-            sheet.update_cell(row_num, 6, preview_id)  # колонка F (preview_url)
+            sheet.update_cell(row_num, 6, preview_id)
         except:
             pass
         
-        # Удаляем из временного хранилища
         del temp_products[user_id]
         
         bot.reply_to(
@@ -604,7 +603,6 @@ def handle_files(message):
         )
         return
     
-    # Если ничего не подошло
     bot.reply_to(
         message,
         "❌ *Неверный формат!*\n\n"
@@ -612,7 +610,7 @@ def handle_files(message):
         "1️⃣ Отправьте ПРЕВЬЮ (фото) с подписью:\n"
         "`/add Название Категория Цена`\n\n"
         "📌 *Пример:*\n"
-        "`/add Python курс Ашық сабақ 2000`\n\n"
+        "`/add 6-сынып БЖБ 3-токсан БЖБ/ТЖБ/Емтихан 500`\n\n"
         "2️⃣ Отправьте САМ МАТЕРИАЛ (документ, видео)\n"
         "БЕЗ подписи!",
         parse_mode="Markdown"
