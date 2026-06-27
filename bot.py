@@ -106,9 +106,6 @@ def admin_menu():
 # ===== ОЖИДАЮЩИЕ ПЛАТЕЖИ =====
 pending_payments = {}
 
-# ===== ВРЕМЕННОЕ ХРАНИЛИЩЕ ДЛЯ ДОБАВЛЕНИЯ ТОВАРА =====
-temp_products = {}
-
 # ===== ОСНОВНЫЕ КОМАНДЫ =====
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -451,7 +448,8 @@ def how_to_add(message):
     bot.send_message(
         message.chat.id,
         "📝 *Как добавить товар:*\n\n"
-        "1️⃣ Отправьте ПРЕВЬЮ (фото) с подписью:\n"
+        "1️⃣ Отправьте ФАЙЛ (документ, фото, видео)\n"
+        "2️⃣ В подписи напишите:\n"
         "`/add Название Категория Цена`\n\n"
         "📌 *Пример:*\n"
         "`/add 6-сынып БЖБ 3-токсан БЖБ/ТЖБ/Емтихан 500`\n\n"
@@ -459,8 +457,9 @@ def how_to_add(message):
         "• Ашық сабақ\n"
         "• AI видео\n"
         "• БЖБ/ТЖБ/Емтихан\n\n"
-        "2️⃣ Отправьте САМ МАТЕРИАЛ (документ, видео)\n"
-        "БЕЗ подписи!",
+        "🖼️ *Превью:*\n"
+        "• Если файл — ФОТО или ВИДЕО → оно же станет превью\n"
+        "• Если файл — ДОКУМЕНТ → превью не будет",
         parse_mode="Markdown"
     )
 
@@ -512,7 +511,7 @@ def lista(message):
     else:
         bot.send_message(message.chat.id, "📭 Нет товаров")
 
-# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА =====
+# ===== АВТО-ДОБАВЛЕНИЕ ТОВАРА (ОДНИМ ШАГОМ) =====
 @bot.message_handler(content_types=['document', 'photo', 'video'])
 def handle_files(message):
     user_id = message.from_user.id
@@ -526,93 +525,63 @@ def handle_files(message):
     
     caption = message.caption or ""
     
+    # Формат: /add Название Категория Цена
     match = re.match(r'^/add\s+(.+?)\s+(.+?)\s+(\d+)$', caption)
     
-    if match:
-        name = match.group(1).strip()
-        category = match.group(2).strip()
-        price = int(match.group(3))
-        
-        if message.photo:
-            preview_id = message.photo[-1].file_id
-        elif message.document:
-            preview_id = message.document.file_id
-        elif message.video:
-            preview_id = message.video.file_id
-        else:
-            bot.reply_to(message, "❌ Неподдерживаемый тип для превью")
-            return
-        
-        temp_products[user_id] = {
-            "name": name,
-            "category": category,
-            "price": price,
-            "preview_id": preview_id
-        }
-        
+    if not match:
         bot.reply_to(
             message,
-            f"📸 *Превью сохранено!*\n\n"
-            f"📦 Название: {name}\n"
-            f"📂 Категория: {category}\n"
-            f"💰 Цена: {price} ₸\n\n"
-            "📎 *Теперь отправьте САМ МАТЕРИАЛ*\n"
-            "Без подписи!",
+            "❌ *Неверный формат!*\n\n"
+            "Нужно:\n"
+            "`/add Название Категория Цена`\n\n"
+            "📌 *Пример:*\n"
+            "`/add 6-сынып БЖБ 3-токсан БЖБ/ТЖБ/Емтихан 500`\n\n"
+            "📂 *Категории:*\n"
+            "• Ашық сабақ\n"
+            "• AI видео\n"
+            "• БЖБ/ТЖБ/Емтихан",
             parse_mode="Markdown"
         )
         return
     
-    if user_id in temp_products:
-        data = temp_products[user_id]
-        name = data["name"]
-        category = data["category"]
-        price = data["price"]
-        preview_id = data["preview_id"]
-        
-        if message.document:
-            file_id = message.document.file_id
-        elif message.photo:
-            file_id = message.photo[-1].file_id
-        elif message.video:
-            file_id = message.video.file_id
-        else:
-            bot.reply_to(message, "❌ Неподдерживаемый тип файла")
-            return
-        
-        new_id = add_product_to_sheet(name, category, price, file_id)
-        
+    name = match.group(1).strip()
+    category = match.group(2).strip()
+    price = int(match.group(3))
+    
+    # Получаем file_id
+    if message.document:
+        file_id = message.document.file_id
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+    elif message.video:
+        file_id = message.video.file_id
+    else:
+        bot.reply_to(message, "❌ Неподдерживаемый тип файла")
+        return
+    
+    # Добавляем в Google Sheets
+    new_id = add_product_to_sheet(name, category, price, file_id)
+    
+    # Если это фото или видео — сохраняем как превью
+    preview_url = ""
+    if message.photo or message.video:
+        preview_url = file_id
         try:
             products = get_all_products()
             row_num = len(products) + 1
-            sheet.update_cell(row_num, 6, preview_id)
+            sheet.update_cell(row_num, 6, preview_url)  # колонка F (preview_url)
         except:
             pass
-        
-        del temp_products[user_id]
-        
-        bot.reply_to(
-            message,
-            f"✅ *Товар добавлен!*\n\n"
-            f"📦 Название: {name}\n"
-            f"📂 Категория: {category}\n"
-            f"💰 Цена: {price} ₸\n"
-            f"🆔 ID: {new_id}\n"
-            f"📎 Материал: ✅ добавлен\n"
-            f"🖼️ Превью: ✅ добавлено",
-            parse_mode="Markdown"
-        )
-        return
     
     bot.reply_to(
         message,
-        "❌ *Неверный формат!*\n\n"
-        "Чтобы добавить товар:\n\n"
-        "1️⃣ Отправьте ПРЕВЬЮ (фото) с подписью:\n"
-        "`/add Название Категория Цена`\n\n"
-        "📌 *Пример:*\n"
-        "`/add 6-сынып БЖБ 3-токсан БЖБ/ТЖБ/Емтихан 500`\n\n"
-        "2️⃣ Отправьте САМ МАТЕРИАЛ (документ, видео)\n"
-        "БЕЗ подписи!",
+        f"✅ *Товар добавлен!*\n\n"
+        f"📦 Название: {name}\n"
+        f"📂 Категория: {category}\n"
+        f"💰 Цена: {price} ₸\n"
+        f"🆔 ID: {new_id}\n"
+        f"📎 Файл: ✅ добавлен\n"
+        f"🖼️ Превью: {'✅ (из фото/видео)' if preview_url else '❌ (нет)'}",
         parse_mode="Markdown"
     )
 
