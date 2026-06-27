@@ -202,7 +202,7 @@ def show_ai(message):
 
 @bot.message_handler(func=lambda m: m.text == "🛒 Тапсырыс(24/7)")
 def order(message):
-    bot.send_message(message.chat.id, f"📞 *Байланыс:* @{MANAGER_USERNAME}\n💬 24/7 (бағасы-тауар құндылылығына қарай)", parse_mode="Markdown")
+    bot.send_message(message.chat.id, f"📞 *Байланыс:* @{MANAGER_USERNAME}\n💬 24/7 (бағасы-тауар құндылығына қарай) Материалыңызды 24сағатда жасап береміз,төлем тауарды алғанннан кейін жіберіледі", parse_mode="Markdown")
 
 # ===== ПОКУПКА =====
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
