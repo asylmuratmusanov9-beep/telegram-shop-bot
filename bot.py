@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 
 # ===== ТВОИ ДАННЫЕ =====
-BOT_TOKEN = "8699450261:AAGuPM36Sym3yGjlkqaZkb4ajOcOXdNNJqI"
+BOT_TOKEN = "8699450261:AAHnVIkE5fwj18MdkkYvv4BqS--N5BEAumM"
 ADMIN_ID = 7717714437
 MANAGER_USERNAME = "Vajnigoi"
 SHEET_ID = "1CeSsvRuqrr0M8fv1Aef89vtwPLxrZGAnuxEkx4f08js"
